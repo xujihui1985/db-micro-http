@@ -119,6 +119,7 @@ use crate::common::headers;
 pub use self::router::{EndpointHandler, HttpRoutes, RouteError};
 pub use crate::common::headers::{Encoding, Headers, MediaType};
 pub use crate::common::{Body, HttpHeaderError, Method, Version};
+pub use crate::common::sock_ctrl_msg::ScmSocket;
 pub use crate::connection::{ConnectionError, HttpConnection};
 pub use crate::request::{Request, RequestError};
 pub use crate::response::{Response, ResponseHeaders, StatusCode};

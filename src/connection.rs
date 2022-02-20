@@ -4,16 +4,16 @@
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::os::unix::io::FromRawFd;
+use std::os::unix::prelude::{AsRawFd, RawFd, FromRawFd};
 
 use crate::common::ascii::{CR, CRLF_LEN, LF};
 use crate::common::Body;
+use crate::common::sock_ctrl_msg::ScmSocket;
 pub use crate::common::{ConnectionError, HttpHeaderError, RequestError};
 use crate::headers::Headers;
 use crate::request::{find, Request, RequestLine};
 use crate::response::{Response, StatusCode};
 use crate::server::MAX_PAYLOAD_SIZE;
-use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
 const BUFFER_SIZE: usize = 1024;
 const SCM_MAX_FD: usize = 253;
@@ -61,6 +61,16 @@ pub struct HttpConnection<T> {
     payload_max_size: usize,
 }
 
+impl<T> AsRawFd for HttpConnection<T>
+where
+    T: AsRawFd,
+{
+    fn as_raw_fd(&self) -> RawFd {
+        self.stream.as_raw_fd()
+    }
+}
+
+// impl<T: Read + Write + ScmSocket> HttpConnection<T> {
 impl<T: Read + Write + ScmSocket> HttpConnection<T> {
     /// Creates an empty connection.
     pub fn new(stream: T) -> Self {
@@ -172,17 +182,23 @@ impl<T: Read + Write + ScmSocket> HttpConnection<T> {
         // would lead to the incapacity of receiving the file descriptors.
         let mut fds = [0; SCM_MAX_FD];
         let mut iovecs = [libc::iovec {
-            iov_base: buf.as_mut_ptr() as *mut libc::c_void,
+            iov_base: buf.as_mut_ptr() as *mut _,
             iov_len: buf.len(),
         }];
 
-        // Safe because we have mutably borrowed buf and it's safe to write
-        // arbitrary data to a slice.
         let (read_count, fd_count) = unsafe {
             self.stream
                 .recv_with_fds(&mut iovecs, &mut fds)
                 .map_err(ConnectionError::StreamReadError)?
         };
+        // let mut iovecs = [IoSliceMut::new(buf)];
+
+        // // Safe because we have mutably borrowed buf and it's safe to write
+        // // arbitrary data to a slice.
+        // let read_count = self
+        //     .stream
+        //     .read_vectored(&mut iovecs)
+        //     .map_err(ConnectionError::StreamReadError2)?;
 
         Ok((
             read_count,
@@ -554,8 +570,8 @@ impl<T: Read + Write + ScmSocket> HttpConnection<T> {
 mod tests {
     use std::io::{Seek, SeekFrom};
     use std::net::Shutdown;
-    use std::os::unix::io::IntoRawFd;
     use std::os::unix::net::UnixStream;
+    use std::os::unix::prelude::IntoRawFd;
 
     use super::*;
     use crate::common::{Method, Version};

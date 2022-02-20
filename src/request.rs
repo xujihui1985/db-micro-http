@@ -404,11 +404,16 @@ mod tests {
             RequestError::InvalidRequest
         );
 
-        // Test for invalid method.
+        // POST method was supported
+        let expected_request_line = RequestLine {
+            http_version: Version::Http10,
+            method: Method::Post,
+            uri: Uri::new("http://localhost/home"),
+        };
         let request_line = b"POST http://localhost/home HTTP/1.0";
         assert_eq!(
-            RequestLine::try_from(request_line).unwrap_err(),
-            RequestError::InvalidHttpMethod("Unsupported HTTP method.")
+            RequestLine::try_from(request_line).unwrap(),
+            expected_request_line,
         );
 
         // Test for invalid uri.

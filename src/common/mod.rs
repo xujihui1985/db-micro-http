@@ -5,6 +5,7 @@ use std::fmt::{Display, Error, Formatter};
 use std::str::Utf8Error;
 
 pub mod headers;
+pub mod sock_ctrl_msg;
 
 pub mod ascii {
     pub const CR: u8 = b'\r';
@@ -126,7 +127,7 @@ pub enum ConnectionError {
     /// The request parsing has failed.
     ParseError(RequestError),
     /// Could not perform a read operation from stream successfully.
-    StreamReadError(vmm_sys_util::errno::Error),
+    StreamReadError(SysError),
     /// Could not perform a write operation to stream successfully.
     StreamWriteError(std::io::Error),
 }
@@ -138,6 +139,7 @@ impl Display for ConnectionError {
             Self::InvalidWrite => write!(f, "Invalid write attempt."),
             Self::ParseError(inner) => write!(f, "Parsing error: {}", inner),
             Self::StreamReadError(inner) => write!(f, "Reading stream error: {}", inner),
+            // Self::StreamReadError2(inner) => write!(f, "Reading stream error: {}", inner),
             Self::StreamWriteError(inner) => write!(f, "Writing stream error: {}", inner),
         }
     }
@@ -232,6 +234,10 @@ pub enum Method {
     Put,
     /// PATCH Method.
     Patch,
+    /// POST Method.
+    Post,
+    /// DELETE Method.
+    Delete,
 }
 
 impl Method {
@@ -247,6 +253,8 @@ impl Method {
             b"GET" => Ok(Self::Get),
             b"PUT" => Ok(Self::Put),
             b"PATCH" => Ok(Self::Patch),
+            b"POST" => Ok(Self::Post),
+            b"DELETE" => Ok(Self::Delete),
             _ => Err(RequestError::InvalidHttpMethod("Unsupported HTTP method.")),
         }
     }
@@ -257,6 +265,8 @@ impl Method {
             Self::Get => b"GET",
             Self::Put => b"PUT",
             Self::Patch => b"PATCH",
+            Self::Post => b"POST",
+            Self::Delete => b"DELETE",
         }
     }
 
@@ -266,6 +276,8 @@ impl Method {
             Method::Get => "GET",
             Method::Put => "PUT",
             Method::Patch => "PATCH",
+            Method::Delete => "DELETE",
+            Method::Post => "POST",
         }
     }
 }
@@ -323,6 +335,47 @@ impl Version {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SysError(i32);
+
+impl SysError {
+
+    pub fn new(errno: i32) -> SysError {
+        SysError(errno)
+    }
+
+    pub fn last() -> SysError {
+        SysError(std::io::Error::last_os_error().raw_os_error().unwrap())
+    }
+
+    pub fn errno(self) -> i32 {
+        self.0
+    }
+}
+
+
+impl Display for SysError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        std::io::Error::from_raw_os_error(self.0).fmt(f)
+    }
+}
+
+impl std::error::Error for SysError {}
+
+impl From<std::io::Error> for SysError {
+    fn from(e: std::io::Error) -> Self {
+        SysError::new(e.raw_os_error().unwrap_or_default())
+    }
+}
+
+impl From<SysError> for std::io::Error {
+    fn from(err: SysError) -> std::io::Error {
+        std::io::Error::from_raw_os_error(err.0)
+    }
+}
+
+pub type SysResult<T> = std::result::Result<T, SysError>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,13 +422,17 @@ mod tests {
         assert_eq!(Method::Get.raw(), b"GET");
         assert_eq!(Method::Put.raw(), b"PUT");
         assert_eq!(Method::Patch.raw(), b"PATCH");
+        assert_eq!(Method::Post.raw(), b"POST");
+        assert_eq!(Method::Delete.raw(), b"DELETE");
 
         // Tests for try_from
         assert_eq!(Method::try_from(b"GET").unwrap(), Method::Get);
         assert_eq!(Method::try_from(b"PUT").unwrap(), Method::Put);
         assert_eq!(Method::try_from(b"PATCH").unwrap(), Method::Patch);
+        assert_eq!(Method::try_from(b"POST").unwrap(), Method::Post);
+        assert_eq!(Method::try_from(b"DELETE").unwrap(), Method::Delete);
         assert_eq!(
-            Method::try_from(b"POST").unwrap_err(),
+            Method::try_from(b"HEAD").unwrap_err(),
             RequestError::InvalidHttpMethod("Unsupported HTTP method.")
         );
     }
@@ -504,12 +561,21 @@ mod tests {
             format!("{}", ConnectionError::InvalidWrite),
             "Invalid write attempt."
         );
+        #[cfg(target_os="linux")]
         assert_eq!(
             format!(
                 "{}",
                 ConnectionError::StreamWriteError(std::io::Error::from_raw_os_error(11))
             ),
             "Writing stream error: Resource temporarily unavailable (os error 11)"
+        );
+        #[cfg(target_os="macos")]
+        assert_eq!(
+            format!(
+                "{}",
+                ConnectionError::StreamWriteError(std::io::Error::from_raw_os_error(11))
+            ),
+            "Writing stream error: Resource deadlock avoided (os error 11)"
         );
     }
 
@@ -522,12 +588,21 @@ mod tests {
             ),
             "Connection error: Connection closed."
         );
+        #[cfg(target_os="linux")]
         assert_eq!(
             format!(
                 "{}",
                 ServerError::IOError(std::io::Error::from_raw_os_error(11))
             ),
             "IO error: Resource temporarily unavailable (os error 11)"
+        );
+        #[cfg(target_os="macos")]
+        assert_eq!(
+            format!(
+                "{}",
+                ServerError::IOError(std::io::Error::from_raw_os_error(11))
+            ),
+            "IO error: Resource deadlock avoided (os error 11)"
         );
         assert_eq!(
             format!("{}", ServerError::Overflow),

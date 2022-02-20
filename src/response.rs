@@ -151,15 +151,15 @@ impl ResponseHeaders {
         self.write_allow_header(buf)?;
         self.write_deprecation_header(buf)?;
 
+        buf.write_all(Header::ContentLength.raw())?;
+        buf.write_all(&[COLON, SP])?;
+        buf.write_all(self.content_length.to_string().as_bytes())?;
+        buf.write_all(&[CR, LF])?;
+
         if self.content_length != 0 {
             buf.write_all(Header::ContentType.raw())?;
             buf.write_all(&[COLON, SP])?;
             buf.write_all(self.content_type.as_str().as_bytes())?;
-            buf.write_all(&[CR, LF])?;
-
-            buf.write_all(Header::ContentLength.raw())?;
-            buf.write_all(&[COLON, SP])?;
-            buf.write_all(self.content_length.to_string().as_bytes())?;
             buf.write_all(&[CR, LF])?;
 
             if self.accept_encoding {
@@ -341,8 +341,8 @@ mod tests {
         let expected_response: &'static [u8] = b"HTTP/1.0 200 \r\n\
             Server: Firecracker API\r\n\
             Connection: keep-alive\r\n\
-            Content-Type: text/plain\r\n\
             Content-Length: 14\r\n\
+            Content-Type: text/plain\r\n\
             Accept-Encoding: identity\r\n\r\n\
             This is a test";
 
@@ -359,8 +359,8 @@ mod tests {
         let expected_response: &'static [u8] = b"HTTP/1.0 200 \r\n\
             Server: Firecracker API\r\n\
             Connection: keep-alive\r\n\
-            Allow: GET, PATCH, PUT\r\n\r\n";
-        let mut response_buf: [u8; 90] = [0; 90];
+            Allow: GET, PATCH, PUT\r\nContent-Length: 0\r\n\r\n";
+        let mut response_buf: [u8; 109] = [0; 109];
         assert!(response.write_all(&mut response_buf.as_mut()).is_ok());
         assert_eq!(response_buf.as_ref(), expected_response);
 
@@ -388,15 +388,15 @@ mod tests {
             "HTTP/1.0 200 \r\n\
              Server: {}\r\n\
              Connection: keep-alive\r\n\
-             Content-Type: text/plain\r\n\
-             Content-Length: 14\r\n\r\n\
+             Content-Length: 14\r\n\
+             Content-Type: text/plain\r\n\r\n\
              This is a test",
             server
         );
 
         let mut response_buf: [u8; 123] = [0; 123];
         assert!(response.write_all(&mut response_buf.as_mut()).is_ok());
-        assert!(response_buf.as_ref() == expected_response.as_bytes());
+        assert_eq!(response_buf.as_ref(), expected_response.as_bytes());
     }
 
     #[test]
@@ -443,8 +443,8 @@ mod tests {
             Server: Firecracker API\r\n\
             Connection: keep-alive\r\n\
             Deprecation: true\r\n\
-            Content-Type: text/plain\r\n\
             Content-Length: 14\r\n\
+            Content-Type: text/plain\r\n\
             Accept-Encoding: identity\r\n\r\n\
             This is a test";
 
@@ -463,9 +463,10 @@ mod tests {
         let expected_response: &'static [u8] = b"HTTP/1.0 204 \r\n\
             Server: Firecracker API\r\n\
             Connection: keep-alive\r\n\
-            Deprecation: true\r\n\r\n";
+            Deprecation: true\r\n\
+            Content-Length: 0\r\n\r\n";
 
-        let mut response_buf: [u8; 85] = [0; 85];
+        let mut response_buf: [u8; 104] = [0; 104];
         assert!(response.write_all(&mut response_buf.as_mut()).is_ok());
         assert_eq!(response_buf.as_ref(), expected_response);
     }
